@@ -1,0 +1,101 @@
+function extractEmailsToSheet() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var threads = GmailApp.search("label:Mailbox Name"); // Replace "Mailbox Name" with the name of the mailbox you would like your data pulled from.
+  sheet.clear(); // Clears previous data
+  sheet.appendRow(["Title 1", "Title 2", "Title 3", "Title 4", "Title 5", "Title 6"]); // Rename the "Titles" with the names of the column headers
+
+  // Use a Set to track core row data and avoid duplicates
+  var processedCoreData = new Set();
+
+  for (var i = 0; i < threads.length; i++) {
+    var messages = threads[i].getMessages(); // Get all messages in the thread
+    var threadHasEntries = false; // Tracks if a thread has valid entries
+
+    // Process every message in the thread
+    for (var j = 0; j < messages.length; j++) {
+      var message = messages[j];
+      var body = message.getPlainBody(); // Extracts the email body
+      var sender = message.getFrom(); // Extracts the sender's email address
+      var timestamp = message.getDate(); // Gets the original timestamp of the email
+
+      // Log email processing details
+      console.log(`Processing email from ${sender} at ${timestamp}`);
+      console.log("Original Email Body:", body);
+
+      // Detect and isolate forwarded content
+      var forwardedIndex = body.indexOf("Forwarded message");
+      if (forwardedIndex !== -1) {
+        body = body.substring(forwardedIndex); // Extract the forwarded content section
+        console.log("Isolated Forwarded Content:", body);
+      }
+
+      var lines = body.split("\n"); // Split the email body into individual lines
+      console.log("Number of Lines in Email Body:", lines.length);
+
+      for (var k = 0; k < lines.length; k++) {
+        var line = lines[k].trim();
+
+        // Remove forwarding artifacts (e.g., leading '>' and extra spaces)
+        if (line.startsWith(">")) {
+          line = line.substring(1).trim();
+        }
+
+        if (line) { // Process non-empty lines
+          var parsedData = line.split("/").map(data => typeof data === "string" ? data.trim() : ""); // Ensure every element is a string
+          console.log("Parsed Data:", parsedData);
+
+          // Validate the format (4 parts separated by '/')
+          if (parsedData.length === 4) {
+            var type = parsedData[0].toLowerCase(); // Normalize to lowercase
+            var district = parsedData[1].toLowerCase(); // Normalize to lowercase
+            var campus = parsedData[2].toLowerCase(); // Normalize to lowercase
+            var name = parsedData[3].toLowerCase(); // Normalize to lowercase
+
+            // Prepare the row to append
+            var rowContents = [
+              parsedData[0], // Original casing for spreadsheet
+              parsedData[1],
+              parsedData[2],
+              parsedData[3],
+              sender ? sender.trim() : "Unknown Sender", // Handle missing sender info
+              timestamp ? timestamp.toString().trim() : "Unknown Timestamp" // Handle missing timestamps
+            ];
+
+            // Generate a key based on core data to check for duplicates
+            var coreDataKey = `${type}|${district}|${campus}|${name}`; // Use only core fields for duplicate check
+
+            // Check if core data has already been processed
+            if (!processedCoreData.has(coreDataKey)) {
+              try {
+                sheet.appendRow(rowContents);
+                processedCoreData.add(coreDataKey); // Track this core data to prevent duplicates
+                threadHasEntries = true; // Mark that the thread has valid entries
+                console.log("Appended Row Successfully:", rowContents);
+              } catch (e) {
+                console.error("Failed to Append Row:", rowContents, "Error:", e.message);
+              }
+            } else {
+              console.log("Skipped Duplicate Row with Core Data Key:", coreDataKey);
+            }
+          } else {
+            console.log("Skipped Line (Invalid Format):", line);
+          }
+        } else {
+          console.log("Skipped Line (Empty or Artifact):", line);
+        }
+      }
+    }
+
+    // Add an empty row after processing a thread only if it had valid entries
+    if (threadHasEntries) {
+      try {
+        sheet.appendRow(["", "", "", "", "", ""]); // Append an actual blank row
+        console.log("Added an Empty Row After Thread");
+      } catch (e) {
+        console.error("Failed to Append Empty Row. Error:", e.message);
+      }
+    } else {
+      console.log("No Valid Entries in This Thread");
+    }
+  }
+}
